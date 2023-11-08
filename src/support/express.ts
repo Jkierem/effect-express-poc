@@ -19,18 +19,13 @@ type BinaryOperator<R0,E0> = <R,E,A extends Express | Router>(eff: Effect.Effect
 type ExpressEffect<R=never, E=never> = Effect.Effect<R, E, Express>
 export const makeApp = (): ExpressEffect => Effect.sync(() => express())
 
-type RouterEffect<R,E> = Effect.Effect<R, E, Router>
 export const makeRouter = (options?: express.RouterOptions) => Effect.sync(() => express.Router(options))
 
 export const map = Effect.map
 
 export const flatMap = Effect.flatMap
 
-export function use<T>(path: string, ...handlers: RequestHandler<T>[]): UnaryOperator
-export function use<T>(...handlers: RequestHandler<T>[]): UnaryOperator
-export function use(...handlers: any[]){
-    return map((app: Express) => app.use(...handlers))
-}
+export const tap = Effect.tap
 
 type Scoped<R,E,A> = [path: string, effect: Effect.Effect<R,E,A | A[]>]
 type Unscoped<R,E,A> = [effect: Effect.Effect<R,E,A | A[]>]
@@ -68,12 +63,20 @@ const makeClassicMethod = (method: Lowercase<Method>): MethodHandler => (
     ...handlers:  RequestHandler[]
 ): UnaryOperator => map((app) => (app as any)[method](path, ...handlers))
 
+function classicUse<T>(path: string, ...handlers: RequestHandler<T>[]): UnaryOperator
+function classicUse<T>(...handlers: RequestHandler<T>[]): UnaryOperator
+function classicUse(...handlers: any[]){
+    return map((app: Express) => app.use(...handlers))
+}
+
 export const classic = Methods.reduce((rec, next) => {
     return {
         ...rec,
         [next]: makeClassicMethod(next)
     }
-},{} as Record<Lowercase<Method>, MethodHandler>)
+},{
+    use: classicUse
+} as Record<Lowercase<Method>, MethodHandler> & { use: typeof classicUse })
 
 type ParamKeys<T> = T extends `${string}:${infer R}`
     ? R extends `${infer P}/${infer L}`
@@ -99,7 +102,7 @@ export const effect = <R,E, const Path extends string>(
 }
 
 export interface HandlerContext<
-    Path extends string, 
+    Path extends string = '/', 
     ResBody = any, 
     ReqBody = any,
 > {
@@ -108,9 +111,9 @@ export interface HandlerContext<
     next: NextFunction
 }
 
-export const HandlerContext = Context.Tag<HandlerContext<any>>();
+export const HandlerContext = Context.Tag<HandlerContext>();
 
-export const RouteContext = <T extends string>(_path: T) => HandlerContext as Context.Tag<HandlerContext<T>, HandlerContext<T>>;
+export const RouteContext = <T extends string>(_path: T) => HandlerContext as unknown as Context.Tag<HandlerContext<T>, HandlerContext<T>>;
 
 export type EffectRequestHandler<R, E, Path extends string> = Effect.Effect<R | HandlerContext<Path>, never, Either.Either<E, void>>
 
@@ -142,6 +145,49 @@ export const withContext = <R,E,const Path extends string>(
     )
 }
 
+type ScopedUse<R,E,Path extends string> = [path: Path, effect: EffectRequestHandler<R,E,Path>, onFinish?: (result: Either.Either<E, void>) => void]
+type UnscopedUse<R,E> = [effect: EffectRequestHandler<R,E,'/'>, onFinish?: (result: Either.Either<E, void>) => void]
+type UseParams<R,E,Path extends string> = ScopedUse<R,E,Path> | UnscopedUse<R,E>
+const isScopedUse = <R,E,Path extends string>(params: UseParams<R,E,Path>): params is ScopedUse<R,E,Path> => typeof params[0] === 'string'
+
+export function use<R,E>(handler: EffectRequestHandler<R,E,'/'>, onFinish?: (result: Either.Either<E, void>) => void): UnaryOperator
+export function use<R,E,const Path extends string>(path: Path, handler: EffectRequestHandler<R,E,Path>, onFinish?: (result: Either.Either<E, void>) => void): UnaryOperator
+export function use<R,E,const Path extends string>(...args: UseParams<R,E,Path>) {
+    let effect: EffectRequestHandler<R,E,Path>;
+    let onFinish: (result: Either.Either<E, void>) => void;
+    let path: Path | undefined;
+    if( isScopedUse(args) ){
+        path = args[0]
+        effect = args[1]
+        onFinish = args[2] ?? (() => void 0)
+    } else {;
+        effect = args[0] as EffectRequestHandler<R,E,Path>;
+        onFinish = args[1] ?? (() => void 0);
+    }
+    return (<R0, E0, A extends express.Express | express.Router>(self: Effect.Effect<R0, E0, A>) => {
+        return Effect.gen(function*(_){
+            const ctx = yield* _(Effect.context<R>());
+            const app = yield* _(self);
+
+            const handler = (
+                request: Request, 
+                response: Response, 
+                next: NextFunction
+            ) => {
+                const handlerCtx = HandlerContext.of({ request, response, next})
+                return effect
+                    .pipe(Effect.provideService(HandlerContext, handlerCtx))
+                    .pipe(Effect.provide(ctx))
+                    .pipe(Effect.map(onFinish))
+                    .pipe(Effect.runPromise)
+            }
+
+            return path === undefined 
+                ? app.use(handler) 
+                : (app as Express).use(path, handler);
+        })
+    }) as UnaryOperator
+}
 
 const makeMethod = (method: Method) => <
     R,
@@ -178,3 +224,13 @@ export const unsubscribe = makeMethod('unsubscribe')
 
 const delete_ = makeMethod('delete')
 export { delete_ as delete }
+
+/**
+ * Similar to Effect.gen but moves the error to the success channel via Effect.either
+ */
+export const gen = <
+    Eff extends Effect.EffectGen<any, any, any>
+>(f: (resume: Effect.Adapter) => Generator<Eff, void, any>) => pipe(
+    Effect.gen(f),
+    Effect.either
+)

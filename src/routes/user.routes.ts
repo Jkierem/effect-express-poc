@@ -2,7 +2,7 @@ import { Effect, pipe } from 'effect'
 import * as Express from '../support/express'
 import { FileAdapter } from '../adapters/file.adapter'
 
-const readUser = Effect.gen(function* (_) {
+const readUser = Express.gen(function* (_) {
     const fileAdapter = yield* _(FileAdapter);
     const { response, request } = yield* _(Express.RouteContext('/:id'));
     const file = request.params.id === "fail" ? "fail" : 'users'
@@ -25,10 +25,19 @@ const readUser = Effect.gen(function* (_) {
         onTrue,
         onFalse
     }))
-}).pipe(Effect.either)
+})
+
+const loggerMiddleware = Express.gen(function* (_){
+    const { request, next } = yield* _(Express.HandlerContext)
+    const { method, path } = request
+
+    yield* _(Effect.log(`${method} ${path}`));
+    yield* _(Effect.sync(next))
+})
+
 
 export const UserRouter = pipe(
     Express.makeRouter(),
+    Express.use(loggerMiddleware),
     Express.get('/:id', readUser),
-    Effect.tapError(() => Effect.log("Caught an error"))
 )
