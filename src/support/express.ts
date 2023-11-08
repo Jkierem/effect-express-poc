@@ -1,18 +1,16 @@
 import express from 'express'
 import type { Express, Request, Response, RequestHandler, Router, NextFunction } from 'express'
-import { Context, Effect, pipe } from 'effect'
+import { Context, Effect, Either, pipe } from 'effect'
 
 export const Methods = [
-    "CHECKOUT", "COPY", "DELETE", "GET", "HEAD",
-    "LOCK", "MERGE", "MKACTIVITY", "MKCOL", "MOVE",
-    "M-SEARCH", "NOTIFY", "OPTIONS", "PATCH", "POST",
-    "PURGE", "PUT", "REPORT", "SEARCH", "SUBSCRIBE", 
-    "TRACE", "UNLOCK", "UNSUBSCRIBE"
+    "checkout", "copy", "delete", "get", "head",
+    "lock", "merge", "mkactivity", "mkcol", "move",
+    "m-search", "notify", "options", "patch", "post",
+    "purge", "put", "report", "search", "subscribe", 
+    "trace", "unlock", "unsubscribe"
 ] as const
 
 export type Method = typeof Methods[number]
-
-export const lowercase = <const T extends string>(str: T) => str.toLowerCase() as Lowercase<T>
 
 type UnaryOperator = <R,E,A extends Express | Router>(eff: Effect.Effect<R,E,A>) => Effect.Effect<R,E,A>
 
@@ -63,36 +61,19 @@ export function useEffect<R,E,T extends RequestHandler<any>>(...args: EffectPara
 
 export const listen = (port: number, cb: () => void) => map((app: Express) => app.listen(port, cb))
 
-const makeMethod = (method: Method) => (
+type MethodHandler = (path: string, ...handlers: RequestHandler[]) => UnaryOperator
+
+const makeClassicMethod = (method: Lowercase<Method>): MethodHandler => (
     path: string, 
     ...handlers:  RequestHandler[]
-): UnaryOperator => map((app) => (app as any)[lowercase(method)](path, ...handlers))
+): UnaryOperator => map((app) => (app as any)[method](path, ...handlers))
 
-export const get = makeMethod('GET')
-export const post = makeMethod('POST')
-export const put = makeMethod('PUT')
-export const options = makeMethod('OPTIONS')
-export const patch = makeMethod('PATCH')
-export const checkout = makeMethod('CHECKOUT')
-export const copy = makeMethod('COPY')
-export const head = makeMethod('HEAD')
-export const lock = makeMethod('LOCK')
-export const merge = makeMethod('MERGE')
-export const mkactivity = makeMethod('MKACTIVITY')
-export const mkcol = makeMethod('MKCOL')
-export const move = makeMethod('MOVE')
-export const msearch = makeMethod('M-SEARCH')
-export const notify = makeMethod('NOTIFY')
-export const purge = makeMethod('PURGE')
-export const report = makeMethod('REPORT')
-export const search = makeMethod('SEARCH')
-export const subscribe = makeMethod('SUBSCRIBE')
-export const trace = makeMethod('TRACE')
-export const unlock = makeMethod('UNLOCK')
-export const unsubscribe = makeMethod('UNSUBSCRIBE')
-
-const delete_ = makeMethod('DELETE')
-export { delete_ as delete }
+export const classic = Methods.reduce((rec, next) => {
+    return {
+        ...rec,
+        [next]: makeClassicMethod(next)
+    }
+},{} as Record<Lowercase<Method>, MethodHandler>)
 
 type ParamKeys<T> = T extends `${string}:${infer R}`
     ? R extends `${infer P}/${infer L}`
@@ -131,10 +112,13 @@ export const HandlerContext = Context.Tag<HandlerContext<any>>();
 
 export const RouteContext = <T extends string>(_path: T) => HandlerContext as Context.Tag<HandlerContext<T>, HandlerContext<T>>;
 
-export const effectWithContext = <R,E,const Path extends string>(
+export type EffectRequestHandler<R, E, Path extends string> = Effect.Effect<R | HandlerContext<Path>, never, Either.Either<E, void>>
+
+export const withContext = <R,E,const Path extends string>(
     method: Lowercase<Method>,
     path: Path,
-    effect: Effect.Effect<R | HandlerContext<Path>, E, void>
+    effect: EffectRequestHandler<R, E, Path>,
+    onFinish: (result: Either.Either<E, void>) => void = () => void 0
 ) => <R0, E0, A extends Express | Router>(self: Effect.Effect<R0, E0, A>) => {
     return pipe(
         Effect.context<R>(),
@@ -148,6 +132,7 @@ export const effectWithContext = <R,E,const Path extends string>(
                             return effect
                                 .pipe(Effect.provideService(HandlerContext, handlerCtx))
                                 .pipe(Effect.provide(ctx))
+                                .pipe(Effect.map(onFinish))
                                 .pipe(Effect.runPromise)
                         })
                     })
@@ -156,6 +141,43 @@ export const effectWithContext = <R,E,const Path extends string>(
         })
     )
 }
+
+
+const makeMethod = (method: Method) => <
+    R,
+    E,
+    const Path extends string
+>(
+    path: Path,
+    effect: EffectRequestHandler<R,E,Path>,
+    onFinish: (result: Either.Either<E, void>) => void = () => void 0
+) => withContext(method, path, effect, onFinish);
+
+export const get = makeMethod('get')
+export const post = makeMethod('post')
+export const put = makeMethod('put')
+export const options = makeMethod('options')
+export const patch = makeMethod('patch')
+export const checkout = makeMethod('checkout')
+export const copy = makeMethod('copy')
+export const head = makeMethod('head')
+export const lock = makeMethod('lock')
+export const merge = makeMethod('merge')
+export const mkactivity = makeMethod('mkactivity')
+export const mkcol = makeMethod('mkcol')
+export const move = makeMethod('move')
+export const msearch = makeMethod('m-search')
+export const notify = makeMethod('notify')
+export const purge = makeMethod('purge')
+export const report = makeMethod('report')
+export const search = makeMethod('search')
+export const subscribe = makeMethod('subscribe')
+export const trace = makeMethod('trace')
+export const unlock = makeMethod('unlock')
+export const unsubscribe = makeMethod('unsubscribe')
+
+const delete_ = makeMethod('delete')
+export { delete_ as delete }
 
 export interface ScopedRouter<Route extends string,R,E> {
     path: Route
