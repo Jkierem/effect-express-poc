@@ -178,16 +178,3 @@ export const unsubscribe = makeMethod('unsubscribe')
 
 const delete_ = makeMethod('delete')
 export { delete_ as delete }
-
-export interface ScopedRouter<Route extends string,R,E> {
-    path: Route
-    router: Effect.Effect<R, E, Router>
-}
-
-export const useScopedRouter = <Route extends string,R,E>(service: ScopedRouter<Route,R,E>) => useEffect(service.path, service.router);
-
-export const scoped = <const T extends string>(path: T) => <R,E>(router: RouterEffect<R,E>): ScopedRouter<T,R,E> => ({
-    path,
-    router
-})
-

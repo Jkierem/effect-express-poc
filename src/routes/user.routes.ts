@@ -32,5 +32,3 @@ export const UserRouter = pipe(
     Express.get('/:id', readUser),
     Effect.tapError(() => Effect.log("Caught an error"))
 )
-
-export const ScopedUserRouter = UserRouter.pipe(Express.scoped('/user'))
