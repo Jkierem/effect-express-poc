@@ -22,12 +22,7 @@ export type EffectRequestHandler<R, E, Path extends string> = Effect.Effect<R | 
 
 export type ExitHandler<E, Path extends string> = (result: Either.Either<E, void>, handlerContext: HandlerContext<Path>) => void
 
-export declare module Express {
-    export type Express<R=never, E=never> = ExpressEffect<R,E>
-    export type Router<R=never, E=never> = Effect.Effect<R,E,E.Router>
-    export type RequestHandler<R, E, Path extends string> = EffectRequestHandler<R, E, Path>
-    export type ExitHandler<E, Path extends string> = (result: Either.Either<E, void>, handlerContext: HandlerContext<Path>) => void
-}
+export type RouterEffect<R=never,E=never> = Effect.Effect<R,E,E.Router>
 
 const makeApp = (): ExpressEffect => Effect.sync(() => express())
 
@@ -160,8 +155,15 @@ type UnscopedUse<R,E> = [effect: EffectRequestHandler<R,E,'/'>, onExit?: ExitHan
 type UseParams<R,E,Path extends string> = ScopedUse<R,E,Path> | UnscopedUse<R,E>
 const isScopedUse = <R,E,Path extends string>(params: UseParams<R,E,Path>): params is ScopedUse<R,E,Path> => typeof params[0] === 'string'
 
-function use<R,E>(handler: EffectRequestHandler<R,E,'/'>, onExit?: ExitHandler<E, '/'>): UnaryOperator
-function use<R,E,const Path extends string>(path: Path, handler: EffectRequestHandler<R,E,Path>, onExit?: ExitHandler<E, Path>): UnaryOperator
+function use<R,E>(
+    handler: EffectRequestHandler<R,E,'/'>,
+    onExit?: ExitHandler<E,'/'>
+): <R0, E0, A extends E.Express | E.Router>(self: Effect.Effect<R0, E0, A>) => Effect.Effect<Exclude<R | R0, HandlerContext>, E0, A>
+function use<R,E,const Path extends string>(
+    path: Path, 
+    handler: EffectRequestHandler<R,E,Path>, 
+    onExit?: ExitHandler<E, Path>
+): <R0, E0, A extends E.Express | E.Router>(self: Effect.Effect<R0, E0, A>) => Effect.Effect<Exclude<R | R0, HandlerContext<Path>>, E0, A>
 function use<R,E,const Path extends string>(...args: UseParams<R,E,Path>) {
     let effect: EffectRequestHandler<R,E,Path>;
     let onExit: ExitHandler<E, Path>;
@@ -201,7 +203,11 @@ function use<R,E,const Path extends string>(...args: UseParams<R,E,Path>) {
 
 export type EffectMethodHandler = <
     R,E,const Path extends string
->(path: Path, effect: EffectRequestHandler<R,E,Path>, onExit?: ExitHandler<E, Path>) => UnaryOperator
+>(
+    path: Path, 
+    effect: EffectRequestHandler<R,E,Path>, 
+    onExit?: ExitHandler<E, Path>
+) => <R0, E0, A extends E.Express | E.Router>(self: Effect.Effect<R0, E0, A>) => Effect.Effect<R | R0, E0, A>
 
 const makeMethod = (method: Method) => <
     R,
@@ -230,7 +236,7 @@ const gen = <
     Effect.either
 )
 
-export const ExpressModule = {
+const ExpressModule = {
     classic,
     ...effectMethodHandlers,
 

@@ -2,8 +2,6 @@
 
 Integration of express using effects
 
-## The Problem
-
 There are three main parts to this solution: the app, the routing and the request handlers
 
 ### The App
