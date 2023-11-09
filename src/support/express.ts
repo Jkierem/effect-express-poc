@@ -113,6 +113,10 @@ export interface HandlerContext<
 
 export const HandlerContext = Context.Tag<HandlerContext>();
 
+export interface DefaultContext extends HandlerContext {}
+
+export const DefaultContext = HandlerContext as Context.Tag<DefaultContext, DefaultContext>;
+
 export const RouteContext = <T extends string>(_path: T) => HandlerContext as unknown as Context.Tag<HandlerContext<T>, HandlerContext<T>>;
 
 export type EffectRequestHandler<R, E, Path extends string> = Effect.Effect<R | HandlerContext<Path>, never, Either.Either<E, void>>

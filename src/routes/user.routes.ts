@@ -28,13 +28,12 @@ const readUser = Express.gen(function* (_) {
 })
 
 const loggerMiddleware = Express.gen(function* (_){
-    const { request, next } = yield* _(Express.HandlerContext)
+    const { request, next } = yield* _(Express.DefaultContext)
     const { method, path } = request
 
     yield* _(Effect.log(`${method} ${path}`));
     yield* _(Effect.sync(next))
 })
-
 
 export const UserRouter = pipe(
     Express.makeRouter(),
