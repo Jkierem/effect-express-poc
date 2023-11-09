@@ -121,52 +121,53 @@ export const RouteContext = <T extends string>(_path: T) => HandlerContext as un
 
 export type EffectRequestHandler<R, E, Path extends string> = Effect.Effect<R | HandlerContext<Path>, never, Either.Either<E, void>>
 
+export type ExitHandler<E, Path extends string> = (result: Either.Either<E, void>, handlerContext: HandlerContext<Path>) => void
+
+export const defaultExitHandler = <E>(result: Either.Either<E, void>, handlerContext: HandlerContext) => {
+    return result.pipe(Either.mapLeft<E, void>(handlerContext.next))
+}
+
 export const withContext = <R,E,const Path extends string>(
     method: Lowercase<Method>,
     path: Path,
     effect: EffectRequestHandler<R, E, Path>,
-    onFinish: (result: Either.Either<E, void>) => void = () => void 0
+    onExit: ExitHandler<E, Path> = defaultExitHandler
 ) => <R0, E0, A extends Express | Router>(self: Effect.Effect<R0, E0, A>) => {
-    return pipe(
-        Effect.context<R>(),
-        Effect.flatMap((ctx) => {
-            return pipe(
-                self,
-                Effect.tap((app) => {
-                    return Effect.sync(() => {
-                        (app as any)[method](path, (request: Request, response: Response, next: NextFunction) => {
-                            const handlerCtx = HandlerContext.of({ request, response, next})
-                            return effect
-                                .pipe(Effect.provideService(HandlerContext, handlerCtx))
-                                .pipe(Effect.provide(ctx))
-                                .pipe(Effect.map(onFinish))
-                                .pipe(Effect.runPromise)
-                        })
-                    })
-                })
-            )
+    return Effect.gen(function* (_){
+        const ctx = yield* _(Effect.context<R>());
+        const app = yield* _(self);
+        
+        (app as any)[method](path, (request: Request, response: Response, next: NextFunction) => {
+            const handlerCtx = HandlerContext.of({ request, response, next}) as HandlerContext<Path>
+            return effect
+                .pipe(Effect.provideService(HandlerContext, handlerCtx))
+                .pipe(Effect.provide(ctx))
+                .pipe(Effect.tap(result => Effect.sync(() => onExit(result, handlerCtx))))
+                .pipe(Effect.runPromise)
         })
-    )
+
+        return app
+    })
 }
 
-type ScopedUse<R,E,Path extends string> = [path: Path, effect: EffectRequestHandler<R,E,Path>, onFinish?: (result: Either.Either<E, void>) => void]
-type UnscopedUse<R,E> = [effect: EffectRequestHandler<R,E,'/'>, onFinish?: (result: Either.Either<E, void>) => void]
+type ScopedUse<R,E,Path extends string> = [path: Path, effect: EffectRequestHandler<R,E,Path>, onExit?: ExitHandler<E, Path>]
+type UnscopedUse<R,E> = [effect: EffectRequestHandler<R,E,'/'>, onExit?: ExitHandler<E, '/'>]
 type UseParams<R,E,Path extends string> = ScopedUse<R,E,Path> | UnscopedUse<R,E>
 const isScopedUse = <R,E,Path extends string>(params: UseParams<R,E,Path>): params is ScopedUse<R,E,Path> => typeof params[0] === 'string'
 
-export function use<R,E>(handler: EffectRequestHandler<R,E,'/'>, onFinish?: (result: Either.Either<E, void>) => void): UnaryOperator
-export function use<R,E,const Path extends string>(path: Path, handler: EffectRequestHandler<R,E,Path>, onFinish?: (result: Either.Either<E, void>) => void): UnaryOperator
+export function use<R,E>(handler: EffectRequestHandler<R,E,'/'>, onExit?: ExitHandler<E, '/'>): UnaryOperator
+export function use<R,E,const Path extends string>(path: Path, handler: EffectRequestHandler<R,E,Path>, onExit?: ExitHandler<E, Path>): UnaryOperator
 export function use<R,E,const Path extends string>(...args: UseParams<R,E,Path>) {
     let effect: EffectRequestHandler<R,E,Path>;
-    let onFinish: (result: Either.Either<E, void>) => void;
+    let onExit: ExitHandler<E, Path>;
     let path: Path | undefined;
     if( isScopedUse(args) ){
         path = args[0]
         effect = args[1]
-        onFinish = args[2] ?? (() => void 0)
+        onExit = args[2] ?? defaultExitHandler
     } else {;
         effect = args[0] as EffectRequestHandler<R,E,Path>;
-        onFinish = args[1] ?? (() => void 0);
+        onExit = args[1] ?? defaultExitHandler
     }
     return (<R0, E0, A extends express.Express | express.Router>(self: Effect.Effect<R0, E0, A>) => {
         return Effect.gen(function*(_){
@@ -178,11 +179,11 @@ export function use<R,E,const Path extends string>(...args: UseParams<R,E,Path>)
                 response: Response, 
                 next: NextFunction
             ) => {
-                const handlerCtx = HandlerContext.of({ request, response, next})
+                const handlerCtx = HandlerContext.of({ request, response, next}) as HandlerContext<Path>
                 return effect
                     .pipe(Effect.provideService(HandlerContext, handlerCtx))
                     .pipe(Effect.provide(ctx))
-                    .pipe(Effect.map(onFinish))
+                    .pipe(Effect.tap(result => Effect.sync(() => onExit(result, handlerCtx))))
                     .pipe(Effect.runPromise)
             }
 
