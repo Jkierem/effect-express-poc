@@ -5,8 +5,7 @@ import { FileAdapter } from '../adapters/file.adapter'
 const readUser = Express.gen(function* (_) {
     const fileAdapter = yield* _(FileAdapter);
     const { response, request } = yield* _(Express.RouteContext('/:id'));
-    const file = request.params.id === "fail" ? "fail" : 'users'
-    const rawUsers = yield* _(fileAdapter.read(file))
+    const rawUsers = yield* _(fileAdapter.read('users'))
     const users = JSON.parse(rawUsers) as Record<string, string>;
     const user = users[request.params.id]
 
