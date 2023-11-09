@@ -1,5 +1,4 @@
-import { pipe } from 'effect'
-import * as Express from '../support/express'
+import { Express, pipe } from '../support/express'
 
 export const HealthRouter = pipe(
     Express.makeRouter(),

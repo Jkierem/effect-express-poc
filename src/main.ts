@@ -1,5 +1,4 @@
-import { Effect, Layer, pipe } from 'effect'
-import * as Express from './support/express'
+import { Express, Layer, pipe } from './support/express';
 import { HealthRouter } from './routes/health.routes';
 import { UserRouter } from './routes/user.routes';
 import { FileAdapterLive } from './adapters/file.adapter';
@@ -13,4 +12,4 @@ const program = pipe(
 
 const mainLayer = Layer.mergeAll(FileAdapterLive)
 
-Effect.runPromise(Effect.provide(program, mainLayer))
+Express.run(Express.provide(program, mainLayer))

@@ -1,40 +1,50 @@
 import express from 'express'
-import type { Express, Request, Response, RequestHandler, Router, NextFunction } from 'express'
+import type * as E from 'express'
 import { Context, Effect, Either, pipe } from 'effect'
 
-export const Methods = [
+const Methods = [
     "checkout", "copy", "delete", "get", "head",
     "lock", "merge", "mkactivity", "mkcol", "move",
     "m-search", "notify", "options", "patch", "post",
     "purge", "put", "report", "search", "subscribe", 
-    "trace", "unlock", "unsubscribe"
+    "trace", "unlock", "unsubscribe", "all"
 ] as const
 
 export type Method = typeof Methods[number]
 
-type UnaryOperator = <R,E,A extends Express | Router>(eff: Effect.Effect<R,E,A>) => Effect.Effect<R,E,A>
+export type UnaryOperator = <R,E,A extends E.Express | E.Router>(eff: Effect.Effect<R,E,A>) => Effect.Effect<R,E,A>
 
-type BinaryOperator<R0,E0> = <R,E,A extends Express | Router>(eff: Effect.Effect<R,E,A>) => Effect.Effect<R | R0, E | E0, A>
+export type BinaryOperator<R0,E0> = <R,E,A extends E.Express | E.Router>(eff: Effect.Effect<R,E,A>) => Effect.Effect<R | R0, E | E0, A>
 
-type ExpressEffect<R=never, E=never> = Effect.Effect<R, E, Express>
-export const makeApp = (): ExpressEffect => Effect.sync(() => express())
+export type ExpressEffect<R=never, E=never> = Effect.Effect<R, E, E.Express>
 
-export const makeRouter = (options?: express.RouterOptions) => Effect.sync(() => express.Router(options))
+export type EffectRequestHandler<R, E, Path extends string> = Effect.Effect<R | HandlerContext<Path>, never, Either.Either<E, void>>
 
-export const map = Effect.map
+export type ExitHandler<E, Path extends string> = (result: Either.Either<E, void>, handlerContext: HandlerContext<Path>) => void
 
-export const flatMap = Effect.flatMap
+export declare module Express {
+    export type Express<R=never, E=never> = ExpressEffect<R,E>
+    export type Router<R=never, E=never> = Effect.Effect<R,E,E.Router>
+    export type RequestHandler<R, E, Path extends string> = EffectRequestHandler<R, E, Path>
+    export type ExitHandler<E, Path extends string> = (result: Either.Either<E, void>, handlerContext: HandlerContext<Path>) => void
+}
 
-export const tap = Effect.tap
+const makeApp = (): ExpressEffect => Effect.sync(() => express())
+
+const makeRouter = (options?: express.RouterOptions) => Effect.sync(() => express.Router(options))
+
+const map = Effect.map
+
+const flatMap = Effect.flatMap
 
 type Scoped<R,E,A> = [path: string, effect: Effect.Effect<R,E,A | A[]>]
 type Unscoped<R,E,A> = [effect: Effect.Effect<R,E,A | A[]>]
-type EffectParams<R,E,A extends RequestHandler<any>> = Scoped<R,E,A> | Unscoped<R,E,A>
-const isScoped = <R,E,A extends RequestHandler<any>>(params: EffectParams<R,E,A>): params is Scoped<R,E,A> => params.length === 2
+type EffectParams<R,E,A extends E.RequestHandler<any>> = Scoped<R,E,A> | Unscoped<R,E,A>
+const isScoped = <R,E,A extends E.RequestHandler<any>>(params: EffectParams<R,E,A>): params is Scoped<R,E,A> => params.length === 2
 
-export function useEffect<R,E,T extends RequestHandler<any>>(path: string, eff: Effect.Effect<R,E,T>): BinaryOperator<R, E>
-export function useEffect<R,E,T extends RequestHandler<any>>(eff: Effect.Effect<R,E,T>): BinaryOperator<R, E>
-export function useEffect<R,E,T extends RequestHandler<any>>(...args: EffectParams<R,E,T>){
+function useEffect<R,E,T extends E.RequestHandler<any>>(path: string, eff: Effect.Effect<R,E,T>): BinaryOperator<R, E>
+function useEffect<R,E,T extends E.RequestHandler<any>>(eff: Effect.Effect<R,E,T>): BinaryOperator<R, E>
+function useEffect<R,E,T extends E.RequestHandler<any>>(...args: EffectParams<R,E,T>){
     let effect: Effect.Effect<R,E,T | T[]>;
     let path: string | undefined;
     if( isScoped(args) ){
@@ -43,7 +53,7 @@ export function useEffect<R,E,T extends RequestHandler<any>>(...args: EffectPara
     } else {
         effect = args[0]
     }
-    return flatMap((app: Express) => {
+    return flatMap((app: E.Express) => {
         return effect.pipe(map((rawHandlers) => {
             const handlers = Array.isArray(rawHandlers) ? rawHandlers : [rawHandlers]
             return path === undefined 
@@ -53,23 +63,22 @@ export function useEffect<R,E,T extends RequestHandler<any>>(...args: EffectPara
     })
 }
 
+const listen = (port: number, cb: () => void) => map((app: E.Express) => app.listen(port, cb))
 
-export const listen = (port: number, cb: () => void) => map((app: Express) => app.listen(port, cb))
-
-type MethodHandler = (path: string, ...handlers: RequestHandler[]) => UnaryOperator
+type MethodHandler = (path: string, ...handlers: E.RequestHandler[]) => UnaryOperator
 
 const makeClassicMethod = (method: Lowercase<Method>): MethodHandler => (
     path: string, 
-    ...handlers:  RequestHandler[]
+    ...handlers:  E.RequestHandler[]
 ): UnaryOperator => map((app) => (app as any)[method](path, ...handlers))
 
-function classicUse<T>(path: string, ...handlers: RequestHandler<T>[]): UnaryOperator
-function classicUse<T>(...handlers: RequestHandler<T>[]): UnaryOperator
+function classicUse<T>(path: string, ...handlers: E.RequestHandler<T>[]): UnaryOperator
+function classicUse<T>(...handlers: E.RequestHandler<T>[]): UnaryOperator
 function classicUse(...handlers: any[]){
-    return map((app: Express) => app.use(...handlers))
+    return map((app: E.Express) => app.use(...handlers))
 }
 
-export const classic = Methods.reduce((rec, next) => {
+const classic = Methods.reduce((rec, next) => {
     return {
         ...rec,
         [next]: makeClassicMethod(next)
@@ -84,15 +93,15 @@ type ParamKeys<T> = T extends `${string}:${infer R}`
         : R
     : never
 
-export type ParamRecord<T extends string> = Record<ParamKeys<T>, string>
+type ParamRecord<T extends string> = Record<ParamKeys<T>, string>
 
-export type PathBoundRequest<Path extends string> = Request<ParamRecord<Path>>
+export type PathBoundRequest<Path extends string> = E.Request<ParamRecord<Path>>
 
-export const effect = <R,E, const Path extends string>(
+const effect = <R,E, const Path extends string>(
     method: Lowercase<Method>, 
     path: Path, 
-    effect: Effect.Effect<R, E, RequestHandler<ParamRecord<Path>>>
-) => <R,E,A extends Router | Express>(self: Effect.Effect<R,E,A>) => {
+    effect: Effect.Effect<R, E, E.RequestHandler<ParamRecord<Path>>>
+) => <R,E,A extends E.Router | E.Express>(self: Effect.Effect<R,E,A>) => {
     return pipe(
         Effect.Do,
         Effect.bind('app', () => self),
@@ -106,38 +115,34 @@ export interface HandlerContext<
     ResBody = any, 
     ReqBody = any,
 > {
-    response: Response<ResBody>
-    request: Request<ParamRecord<Path>, ResBody, ReqBody>
-    next: NextFunction
+    response: E.Response<ResBody>
+    request: E.Request<ParamRecord<Path>, ResBody, ReqBody>
+    next: E.NextFunction
 }
 
-export const HandlerContext = Context.Tag<HandlerContext>();
+const HandlerContext = Context.Tag<HandlerContext>();
 
 export interface DefaultContext extends HandlerContext {}
 
-export const DefaultContext = HandlerContext as Context.Tag<DefaultContext, DefaultContext>;
+const DefaultContext = HandlerContext as Context.Tag<DefaultContext, DefaultContext>;
 
-export const RouteContext = <T extends string>(_path: T) => HandlerContext as unknown as Context.Tag<HandlerContext<T>, HandlerContext<T>>;
+const RouteContext = <T extends string>(_path: T) => HandlerContext as unknown as Context.Tag<HandlerContext<T>, HandlerContext<T>>;
 
-export type EffectRequestHandler<R, E, Path extends string> = Effect.Effect<R | HandlerContext<Path>, never, Either.Either<E, void>>
-
-export type ExitHandler<E, Path extends string> = (result: Either.Either<E, void>, handlerContext: HandlerContext<Path>) => void
-
-export const defaultExitHandler = <E>(result: Either.Either<E, void>, handlerContext: HandlerContext) => {
+const defaultExitHandler = <E>(result: Either.Either<E, void>, handlerContext: HandlerContext) => {
     return result.pipe(Either.mapLeft<E, void>(handlerContext.next))
 }
 
-export const withContext = <R,E,const Path extends string>(
+const withContext = <R,E,const Path extends string>(
     method: Lowercase<Method>,
     path: Path,
     effect: EffectRequestHandler<R, E, Path>,
     onExit: ExitHandler<E, Path> = defaultExitHandler
-) => <R0, E0, A extends Express | Router>(self: Effect.Effect<R0, E0, A>) => {
+) => <R0, E0, A extends E.Express | E.Router>(self: Effect.Effect<R0, E0, A>) => {
     return Effect.gen(function* (_){
         const ctx = yield* _(Effect.context<R>());
         const app = yield* _(self);
-        
-        (app as any)[method](path, (request: Request, response: Response, next: NextFunction) => {
+
+        (app as any)[method](path, (request: E.Request, response: E.Response, next: E.NextFunction) => {
             const handlerCtx = HandlerContext.of({ request, response, next}) as HandlerContext<Path>
             return effect
                 .pipe(Effect.provideService(HandlerContext, handlerCtx))
@@ -155,9 +160,9 @@ type UnscopedUse<R,E> = [effect: EffectRequestHandler<R,E,'/'>, onExit?: ExitHan
 type UseParams<R,E,Path extends string> = ScopedUse<R,E,Path> | UnscopedUse<R,E>
 const isScopedUse = <R,E,Path extends string>(params: UseParams<R,E,Path>): params is ScopedUse<R,E,Path> => typeof params[0] === 'string'
 
-export function use<R,E>(handler: EffectRequestHandler<R,E,'/'>, onExit?: ExitHandler<E, '/'>): UnaryOperator
-export function use<R,E,const Path extends string>(path: Path, handler: EffectRequestHandler<R,E,Path>, onExit?: ExitHandler<E, Path>): UnaryOperator
-export function use<R,E,const Path extends string>(...args: UseParams<R,E,Path>) {
+function use<R,E>(handler: EffectRequestHandler<R,E,'/'>, onExit?: ExitHandler<E, '/'>): UnaryOperator
+function use<R,E,const Path extends string>(path: Path, handler: EffectRequestHandler<R,E,Path>, onExit?: ExitHandler<E, Path>): UnaryOperator
+function use<R,E,const Path extends string>(...args: UseParams<R,E,Path>) {
     let effect: EffectRequestHandler<R,E,Path>;
     let onExit: ExitHandler<E, Path>;
     let path: Path | undefined;
@@ -175,9 +180,9 @@ export function use<R,E,const Path extends string>(...args: UseParams<R,E,Path>)
             const app = yield* _(self);
 
             const handler = (
-                request: Request, 
-                response: Response, 
-                next: NextFunction
+                request: E.Request, 
+                response: E.Response, 
+                next: E.NextFunction
             ) => {
                 const handlerCtx = HandlerContext.of({ request, response, next}) as HandlerContext<Path>
                 return effect
@@ -189,10 +194,14 @@ export function use<R,E,const Path extends string>(...args: UseParams<R,E,Path>)
 
             return path === undefined 
                 ? app.use(handler) 
-                : (app as Express).use(path, handler);
+                : (app as E.Express).use(path, handler);
         })
     }) as UnaryOperator
 }
+
+export type EffectMethodHandler = <
+    R,E,const Path extends string
+>(path: Path, effect: EffectRequestHandler<R,E,Path>, onExit?: ExitHandler<E, Path>) => UnaryOperator
 
 const makeMethod = (method: Method) => <
     R,
@@ -201,41 +210,49 @@ const makeMethod = (method: Method) => <
 >(
     path: Path,
     effect: EffectRequestHandler<R,E,Path>,
-    onFinish: (result: Either.Either<E, void>) => void = () => void 0
-) => withContext(method, path, effect, onFinish);
+    onExit: ExitHandler<E,Path> = defaultExitHandler
+) => withContext(method, path, effect, onExit);
 
-export const get = makeMethod('get')
-export const post = makeMethod('post')
-export const put = makeMethod('put')
-export const options = makeMethod('options')
-export const patch = makeMethod('patch')
-export const checkout = makeMethod('checkout')
-export const copy = makeMethod('copy')
-export const head = makeMethod('head')
-export const lock = makeMethod('lock')
-export const merge = makeMethod('merge')
-export const mkactivity = makeMethod('mkactivity')
-export const mkcol = makeMethod('mkcol')
-export const move = makeMethod('move')
-export const msearch = makeMethod('m-search')
-export const notify = makeMethod('notify')
-export const purge = makeMethod('purge')
-export const report = makeMethod('report')
-export const search = makeMethod('search')
-export const subscribe = makeMethod('subscribe')
-export const trace = makeMethod('trace')
-export const unlock = makeMethod('unlock')
-export const unsubscribe = makeMethod('unsubscribe')
-
-const delete_ = makeMethod('delete')
-export { delete_ as delete }
+const effectMethodHandlers = Methods.reduce((acc, next) => {
+    return {
+        ...acc,
+        [next]: makeMethod(next)
+    }
+},{} as Record<Method, EffectMethodHandler>)
 
 /**
  * Similar to Effect.gen but moves the error to the success channel via Effect.either
  */
-export const gen = <
+const gen = <
     Eff extends Effect.EffectGen<any, any, any>
 >(f: (resume: Effect.Adapter) => Generator<Eff, void, any>) => pipe(
     Effect.gen(f),
     Effect.either
 )
+
+export const ExpressModule = {
+    classic,
+    ...effectMethodHandlers,
+
+    use,
+    useEffect,
+    withContext,
+    effect,
+
+    gen,
+    listen,
+    makeApp,
+    makeRouter,
+    provide: Effect.provide,
+    run: Effect.runPromise,
+
+    HandlerContext,
+    RouteContext,
+    DefaultContext,
+
+    defaultExitHandler
+}
+
+export { ExpressModule as Express }
+export { Layer, Effect } from 'effect';
+export { pipe }
