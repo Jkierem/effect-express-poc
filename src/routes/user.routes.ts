@@ -8,22 +8,38 @@ const readUser = Express.gen(function* (_) {
     const users = JSON.parse(rawUsers) as Record<string, string>;
     const user = users[request.params.id]
 
-    const onTrue = Effect.sync(() => {
+    if( user !== undefined ){
         response.status(200)
         response.setHeader("Content-Type", "application/json")
         response.json(JSON.stringify(user))
-    })
-
-    const onFalse = Effect.sync(() => {
+    } else {
         response.status(404)
         response.send("Not found")
-    });
-
-    yield* _(Effect.if(user != undefined, {
-        onTrue,
-        onFalse
-    }))
+    }
 })
+
+const readUserPipe = pipe(
+    Effect.all([FileAdapter, Express.RouteContext("/:id")]),
+    Effect.flatMap(([file, { response, request }]) => {
+        return file.read('users').pipe(
+            Effect.map(users => JSON.parse(users) as Record<string, string>),
+            Effect.flatMap((users) => {
+                const user = users[request.params.id];
+                return Effect.if(user != undefined, {
+                    onTrue: Effect.sync(() => {
+                        response.status(200)
+                        response.setHeader("Content-Type", "application/json")
+                        response.json(JSON.stringify(user))
+                    }),
+                    onFalse: Effect.sync(() => {
+                        response.status(404)
+                        response.send("Not found")
+                    })
+                })
+            })
+        )
+    })
+)
 
 const loggerMiddleware = Express.gen(function* (_){
     const { request, next } = yield* _(Express.DefaultContext)
