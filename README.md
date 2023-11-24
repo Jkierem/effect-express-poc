@@ -129,4 +129,42 @@ Express.run(program)
 
 Method handlers that receive effects used in this example can only recieve a single effect and may receive a third argument to make use of the result of the effect for cases where the result is needed. Since an error at this point is always fatal, the default value for the exit handler simply passes the error to express using the next function.
 
-Using this approach, dependencies can be supplied and will be shared accross. In this repo is an example of how those dependencies could be used.
+Using this approach, dependencies can be supplied and will be shared accross. In this repo there is an example of how those dependencies could be used.
+
+When using the handlers with the Handler Context supplied, there are two tags that are exported:
+
+#### Route Handle Context
+
+```ts
+const hello = Express.gen(function*(_){
+    const { request, response, next } = yield* _(Express.RouteContext("/:name"));
+
+    response.send(`Hello ${request.params.name}`)
+})
+
+// Type matches only a handler with a route with a "name" parameter
+
+const router = pipe(
+    Express.makeRouter(),
+    Express.get("/:name", helllo),
+    // Type error:,
+    // Express.get("/:id", hello)
+)
+```
+
+#### Default Context
+
+This is the same as `RouteContext("/")`
+
+```ts
+const hello = Express.gen(function*(_){
+    const { response } = yield* _(Express.DefaultContext);
+
+    response.send(`Hello world`)
+})
+
+const router = pipe(
+    Express.makeRouter(),
+    Express.get("/", helllo),
+)
+```
