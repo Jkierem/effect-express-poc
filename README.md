@@ -67,16 +67,22 @@ const PingRouter = pipe(
     Express.classic.get('/', (req, res) => res.send("PONG")),
 )
 
+const FooRouter = pipe(
+    Express.makeRouter(),
+    Express.classic.get('/', (req, res) => res.send("Bar")),
+)
+
 const program = pipe(
     Express.makeApp(),
     Express.useEffect('/ping', PingRouter),
+    Express.useRouter('/foo', FooRouter),
     Express.listen(3333, () => console.log("Listening on port 3333"))
 )
 
 Express.run(program)
 ```
 
-Here we introduced two operators:
+Here we introduced three operators:
 
 1. `Express.makeRouter(routerConfig)`
 
@@ -85,6 +91,10 @@ Creates an effect that succeeds with a router
 2. `Express.useEffect(path, Effect<R, E, RequestHandler>)`
 
 Takes an effect that creates an Express app or router and returns an effect that calls `use` with the result of the provided effect. This operator receives an effect that succeeds with a plain express request handler. Since a Router is the same as a Request Handler, we use this operator to bind a router to a path.
+
+3. `Express.useRouter(path, Effect<R, E, Router>)`
+
+This a more restricted version of `useEffect`. Although routers can be used with just `useEffect`, this alias is the recomended way to bind routers. If you need an unbound router, then you would need to use `useEffect`.
 
 ### The Request handlers
 
@@ -120,7 +130,7 @@ const PingRouter = pipe(
 
 const program = pipe(
     Express.makeApp(),
-    Express.useEffect('/ping', PingRouter),
+    Express.useRouter('/ping', PingRouter),
     Express.listen(3333, () => console.log("Listening on port 3333"))
 )
 

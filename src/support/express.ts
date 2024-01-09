@@ -24,8 +24,14 @@ export type ExitHandler<E, Path extends string> = (result: Either.Either<E, void
 
 export type RouterEffect<R=never,E=never> = Effect.Effect<R,E,E.Router>
 
+/**
+ * Creates an effect that creates an express app
+ */
 const makeApp = (): ExpressEffect => Effect.sync(() => express())
 
+/**
+ * Creates an effect that creates an express router
+ */
 const makeRouter = (options?: express.RouterOptions) => Effect.sync(() => express.Router(options))
 
 const map = Effect.map
@@ -37,7 +43,13 @@ type Unscoped<R,E,A> = [effect: Effect.Effect<R,E,A | A[]>]
 type EffectParams<R,E,A extends E.RequestHandler<any>> = Scoped<R,E,A> | Unscoped<R,E,A>
 const isScoped = <R,E,A extends E.RequestHandler<any>>(params: EffectParams<R,E,A>): params is Scoped<R,E,A> => params.length === 2
 
+/**
+ * Binds an effect to a request in a given path
+ */
 function useEffect<R,E,T extends E.RequestHandler<any>>(path: string, eff: Effect.Effect<R,E,T>): BinaryOperator<R, E>
+/**
+ * Binds an effect to all requests
+ */
 function useEffect<R,E,T extends E.RequestHandler<any>>(eff: Effect.Effect<R,E,T>): BinaryOperator<R, E>
 function useEffect<R,E,T extends E.RequestHandler<any>>(...args: EffectParams<R,E,T>){
     let effect: Effect.Effect<R,E,T | T[]>;
@@ -58,6 +70,18 @@ function useEffect<R,E,T extends E.RequestHandler<any>>(...args: EffectParams<R,
     })
 }
 
+/**
+ * Binds an effect router to a request in a given path
+ * 
+ * @alias useEffect
+ */
+function useRouter<R,E>(path: string, effect: Effect.Effect<R,E,E.Router>): BinaryOperator<R,E> {
+    return useEffect(path, effect);
+}
+
+/**
+ * Takes an effect that resolves in an express app, and returns an effect that calls listen on it.
+ */
 const listen = (port: number, cb: () => void) => map((app: E.Express) => app.listen(port, cb))
 
 type MethodHandler = (path: string, ...handlers: E.RequestHandler[]) => UnaryOperator
@@ -127,6 +151,14 @@ const defaultExitHandler = <E>(result: Either.Either<E, void>, handlerContext: H
     return result.pipe(Either.mapLeft<E, void>(handlerContext.next))
 }
 
+/**
+ * Binds an Effect to a method and path, providing the handler context.
+ * @param method HTTP method to be bound to
+ * @param path the path of the request
+ * @param effect Effect to be executed
+ * @param onExit callback to recover from errors. It will receive the result of the effect (as a either)
+ * and the handler context.
+ */
 const withContext = <R,E,const Path extends string>(
     method: Lowercase<Method>,
     path: Path,
@@ -138,7 +170,7 @@ const withContext = <R,E,const Path extends string>(
         const app = yield* _(self);
 
         (app as any)[method](path, (request: E.Request, response: E.Response, next: E.NextFunction) => {
-            const handlerCtx = HandlerContext.of({ request, response, next}) as HandlerContext<Path>
+            const handlerCtx = HandlerContext.of({ request, response, next }) as HandlerContext<Path>
             return effect
                 .pipe(Effect.provideService(HandlerContext, handlerCtx))
                 .pipe(Effect.provide(ctx))
@@ -244,6 +276,7 @@ const ExpressModule = {
     useEffect,
     withContext,
     effect,
+    useRouter,
 
     gen,
     listen,

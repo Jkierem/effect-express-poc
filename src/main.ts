@@ -6,8 +6,8 @@ import { HealthAdapterLive } from './adapters/health.adapter';
 
 const program = pipe(
     Express.makeApp(),
-    Express.useEffect("/health", HealthRouter),
-    Express.useEffect("/user", UserRouter),
+    Express.useRouter("/health", HealthRouter),
+    Express.useRouter("/user", UserRouter),
     Express.listen(3333, () => console.log("Listening on port 3333"))
 )
 
